@@ -1208,7 +1208,9 @@ Objective Parameters
 
 -  ``label_gain`` :raw-html:`<a id="label_gain" title="Permalink to this parameter" href="#label_gain">&#x1F517;&#xFE0E;</a>`, default = ``0,1,3,7,15,31,63,...,2^30-1``, type = multi-double
 
-   -  used only in ``lambdarank`` application
+   -  used by the ``lambdarank`` objective and the ``ndcg`` evaluation metric
+
+   -  the ``rank_xendcg`` objective derives gains directly from integer labels. Changing ``label_gain`` can still change the best iteration when early stopping uses ``ndcg``
 
    -  relevant gain for labels. For example, the gain of label ``2`` is ``3`` in case of default label gains
 

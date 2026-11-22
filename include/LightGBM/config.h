@@ -991,7 +991,8 @@ struct Config {
 
   // type = multi-double
   // default = 0,1,3,7,15,31,63,...,2^30-1
-  // desc = used only in ``lambdarank`` application
+  // desc = used by the ``lambdarank`` objective and the ``ndcg`` evaluation metric
+  // desc = the ``rank_xendcg`` objective derives gains directly from integer labels. Changing ``label_gain`` can still change the best iteration when early stopping uses ``ndcg``
   // desc = relevant gain for labels. For example, the gain of label ``2`` is ``3`` in case of default label gains
   // desc = separate by ``,``
   std::vector<double> label_gain;
