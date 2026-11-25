@@ -275,6 +275,31 @@ def test_sequence(tmpdir, sample_count, batch_size, include_0_and_nan, num_seq, 
     assert filecmp.cmp(valid_npy_bin_fname, valid_seq2_bin_fname)
 
 
+@pytest.mark.parametrize("num_seq", [1, 3])
+@pytest.mark.parametrize("preconstruct", [False, True])
+def test_sequence_init_model(num_seq, preconstruct, rng):
+    X = rng.standard_normal((50, 4))
+    y = np.arange(len(X)) % 3
+    params = {
+        "objective": "multiclass",
+        "num_class": 3,
+        "min_data_in_leaf": 1,
+        "num_threads": 1,
+        "verbosity": -1,
+    }
+    init_model = lgb.train(params, lgb.Dataset(X, label=y), num_boost_round=2)
+    expected = lgb.train(params, lgb.Dataset(X, label=y), num_boost_round=1, init_model=init_model)
+
+    seqs = _create_sequence_from_ndarray(X, num_seq=num_seq, batch_size=7)
+    dataset = lgb.Dataset(seqs, label=y, params=params, free_raw_data=False)
+    if preconstruct:
+        dataset.construct()
+    actual = lgb.train(params, dataset, num_boost_round=1, init_model=init_model)
+
+    assert actual.current_iteration() == 3
+    np.testing.assert_allclose(actual.predict(X, raw_score=True), expected.predict(X, raw_score=True))
+
+
 @pytest.mark.parametrize("num_seq", [1, 2])
 def test_sequence_get_data(num_seq, rng):
     nrow = 20

@@ -17,6 +17,7 @@ from collections import OrderedDict
 from copy import deepcopy
 from enum import Enum
 from functools import wraps
+from itertools import islice
 from os import SEEK_END, environ
 from os.path import getsize
 from pathlib import Path
@@ -2082,6 +2083,12 @@ class Dataset:
             data_has_header = any(self.params.get(alias, False) for alias in _ConfigAliases.get("header"))
         num_data = self.num_data()
         if predictor is not None:
+            if isinstance(data, Sequence):
+                data = [data]
+            if _is_list_of_sequences(data):
+                return self.__set_init_score_from_seqs(
+                    predictor=predictor, seqs=data, num_data=num_data, used_indices=used_indices
+                )
             init_score: Union[np.ndarray, scipy.sparse.spmatrix] = predictor.predict(
                 data=data,
                 raw_score=True,
@@ -2112,6 +2119,33 @@ class Dataset:
             return self
         self.set_init_score(init_score)
         return self
+
+    def __set_init_score_from_seqs(
+        self,
+        *,
+        predictor: _InnerPredictor,
+        seqs: List[Sequence],
+        num_data: int,
+        used_indices: Optional[Union[List[int], np.ndarray]],
+    ) -> "Dataset":
+        if used_indices is None:
+            batches = self._yield_batch_from_seqlist(seqs)
+        else:
+            rows = self._yield_row_from_seqlist(seqs, used_indices)
+            batch_size = Sequence.batch_size
+            batches = (np.array(list(islice(rows, batch_size))) for _ in range(0, num_data, batch_size))
+
+        # The native Dataset stores initial scores in class-major order.
+        init_score = np.empty((predictor.num_class, num_data), dtype=np.float64)
+        start = 0
+        for batch in batches:
+            end = start + len(batch)
+            scores = predictor.predict(data=batch, raw_score=True)
+            assert isinstance(scores, np.ndarray)
+            init_score[:, start:end] = scores.reshape(len(batch), predictor.num_class).T
+            start = end
+        assert start == num_data
+        return self.set_init_score(init_score.ravel())
 
     def _lazy_init(
         self,
@@ -2243,6 +2277,15 @@ class Dataset:
         return self.set_feature_name(feature_name)
 
     @staticmethod
+    def _yield_batch_from_seqlist(seqs: List[Sequence]) -> Iterator[np.ndarray]:
+        for seq in seqs:
+            nrow = len(seq)
+            batch_size = getattr(seq, "batch_size", None) or Sequence.batch_size
+            for start in range(0, nrow, batch_size):
+                end = min(start + batch_size, nrow)
+                yield seq[start:end]
+
+    @staticmethod
     def _yield_row_from_seqlist(seqs: List[Sequence], indices: Iterable[int]) -> Iterator[np.ndarray]:
         offset = 0
         seq_id = 0
@@ -2321,12 +2364,8 @@ class Dataset:
             sample_data, col_indices = self.__sample(seqs=seqs, total_nrow=total_nrow)
             self._init_from_sample(sample_data, col_indices, sample_cnt, total_nrow)
 
-        for seq in seqs:
-            nrow = len(seq)
-            batch_size = getattr(seq, "batch_size", None) or Sequence.batch_size
-            for start in range(0, nrow, batch_size):
-                end = min(start + batch_size, nrow)
-                self._push_rows(seq[start:end])
+        for batch in self._yield_batch_from_seqlist(seqs):
+            self._push_rows(batch)
         return self
 
     def __init_from_np2d(
